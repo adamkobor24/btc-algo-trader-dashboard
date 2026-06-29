@@ -1,0 +1,58 @@
+<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BTC Algo — Paper Portfolio Tracker</title>
+<style>
+ body{background:#0d1117;color:#e6edf3;font:13px ui-monospace,Menlo,Consolas,monospace;margin:0;padding:18px;}
+ h1{font-size:16px;margin:0 0 2px} .sub{color:#7d8590;font-size:11px;margin-bottom:14px}
+ .dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#f85149;margin-right:6px}
+ .dot.live{background:#3fb950;box-shadow:0 0 7px #3fb950}
+ .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px}
+ .card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:10px}
+ .k{color:#7d8590;font-size:10px;text-transform:uppercase;letter-spacing:.05em} .v{font-size:20px;font-weight:700;margin-top:3px}
+ table{width:100%;border-collapse:collapse;margin:6px 0 16px;font-variant-numeric:tabular-nums}
+ th,td{text-align:right;padding:4px 8px;border-bottom:1px solid #21262d} th{color:#7d8590;font-weight:600;font-size:10px;text-transform:uppercase}
+ td:first-child,th:first-child{text-align:left}
+ .long{color:#3fb950}.short{color:#f85149}.flat{color:#7d8590}
+ h2{font-size:11px;color:#7d8590;text-transform:uppercase;letter-spacing:.07em;margin:14px 0 4px}
+ .pos{color:#3fb950}.neg{color:#f85149}
+ svg{background:#161b22;border:1px solid #30363d;border-radius:8px}
+</style></head><body>
+<h1><span id="dot" class="dot"></span>BTC Algo — Paper Portfolio Tracker</h1>
+<div class="sub" id="sub">loading…</div>
+<div class="grid" id="grid"></div>
+<h2>Equity curve (per 4h tick)</h2>
+<svg id="chart" width="100%" height="120" viewBox="0 0 600 120" preserveAspectRatio="none"></svg>
+<h2>Current positions</h2><table id="pos"><tbody></tbody></table>
+<h2>Recent rebalances</h2><table id="trades"><tbody></tbody></table>
+<div class="sub" style="margin-top:14px">read-only tracker · updates every ~4h via GitHub Actions · paper only · not financial advice</div>
+<script>
+const f=(x,d=2)=>x==null||Number.isNaN(x)?"--":Number(x).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});
+const sgn=x=>x>0?"pos":x<0?"neg":"";
+function card(k,v,cls){return `<div class="card"><div class="k">${k}</div><div class="v ${cls||''}">${v}</div></div>`}
+async function tick(){
+ let r; try{ r=await (await fetch("data.json?_="+Date.now(),{cache:"no-store"})).json(); }catch(e){ document.getElementById("sub").textContent="no data.json yet — first tick pending"; return; }
+ if(r.status!=="ok"){ document.getElementById("sub").textContent=r.status||"waiting for first tick"; return; }
+ document.getElementById("dot").className="dot"+(r.alive?" live":"");
+ const gen=r.generated_at?(" · updated "+r.generated_at.replace('T',' ').replace('+00:00','Z')):"";
+ document.getElementById("sub").textContent=`${r.strategy} · ${r.universe.join(" ")} · ${r.ticks} ticks over ${r.run_days}d · last tick ${r.last_tick_age_hours}h ago ${r.alive?"(live)":"(STALE)"}`+gen;
+ document.getElementById("grid").innerHTML=
+   card("Equity","$"+f(r.equity))+
+   card("Total return",f(r.total_return_pct,2)+"%",sgn(r.total_return_pct))+
+   card("Live Sharpe (ann.)",f(r.live_sharpe_annualized,2),sgn(r.live_sharpe_annualized))+
+   card("Current drawdown",f(r.current_drawdown_pct,2)+"%",r.current_drawdown_pct<0?"neg":"")+
+   card("Max drawdown",f(r.max_drawdown_pct,2)+"%","neg")+
+   card("Open positions",r.open_positions+" / "+r.positions.length)+
+   card("Rebalances",r.total_fills)+
+   card("Running",r.run_days+" d");
+ const eq=r.equity_curve||[]; let path="";
+ if(eq.length>1){ const lo=Math.min(...eq),hi=Math.max(...eq),rng=(hi-lo)||1;
+   path=eq.map((y,i)=>`${i/(eq.length-1)*600},${118-(y-lo)/rng*116}`).join(" "); }
+ document.getElementById("chart").innerHTML=
+   `<polyline fill="none" stroke="${r.total_return_pct>=0?'#3fb950':'#f85149'}" stroke-width="1.5" points="${path}"/>`;
+ document.getElementById("pos").innerHTML="<thead><tr><th>Asset</th><th>Dir</th><th>Qty</th><th>Target lev</th><th>Entry</th></tr></thead><tbody>"+
+   r.positions.map(p=>`<tr><td>${p.symbol}</td><td class="${p.direction.toLowerCase()}">${p.direction}</td><td>${f(p.qty,6)}</td><td>${f(p.target_lev,3)}</td><td>${p.entry?f(p.entry):"--"}</td></tr>`).join("")+"</tbody>";
+ document.getElementById("trades").innerHTML="<thead><tr><th>Time (UTC)</th><th>Asset</th><th>Filled BTC-eq</th><th>Price</th></tr></thead><tbody>"+
+   (r.recent_fills.length?r.recent_fills.map(t=>`<tr><td>${t.ts.replace('T',' ').replace('+00:00','')}</td><td>${t.symbol}</td><td class="${sgn(t.filled_btc)}">${f(t.filled_btc,6)}</td><td>${f(t.price)}</td></tr>`).join(""):"<tr><td>no rebalances yet</td></tr>")+"</tbody>";
+}
+tick(); setInterval(tick,300000);
+</script></body></html>
